@@ -1,22 +1,23 @@
 import pandas as pd
 import yfinance as yf
 
-def get_amount_and_value_from_description(x):
+def get_quantity_and_value_from_description(x):
     """Split string format: Koop [n] @ [x,y] EUR
+    n is quantity and x is value.
 
     Parameters
     ----------
     x : string
         Koop [n] @ [x,y] EUR
     """
-    index_amount = 1
+    index_quantity = 1
     index_value = 3
 
     x_split = x.split(' ')
-    amount = float(x_split[index_amount])
+    quantity = float(x_split[index_quantity])
     value = float(x_split[index_value].replace(',', '.'))
 
-    return [amount, value]
+    return [quantity, value]
 
 def read_account_overview(filename):
     """Load Account export .xls from DeGiro, rename unnamed columns and
@@ -43,35 +44,48 @@ def read_account_overview(filename):
 
     df_account.rename(columns=columns_dict, inplace=True)
 
-    df_account['Datum'] = pd.to_datetime(df_account['Datum'], infer_datetime_format=True)
+    df_account['Datum'] = pd.to_datetime(df_account['Datum'], format="%d-%m-%Y")
     df_account['Datum_Year'] = df_account['Datum'].dt.year
-    df_account['Mutatie_Bedrag'].fillna(0, inplace=True)
-    df_account['Product'].fillna('', inplace=True)
+    df_account.fillna({'Mutatie_Bedrag': 0}, inplace=True)
+    df_account.fillna({'Product': ''}, inplace=True)
+    # Transform the date to a year-month format for grouping per month
+    df_account['datum_reduced'] = df_account['Datum'].dt.strftime('%Y-%m')
+    df_account.sort_values(by=['Datum'], ascending=True, inplace=True)
 
     return df_account
 
-def get_share_price_history(ticker, startdate, enddate):
-    """Get Closed share price of ticker between start and enddate
+def get_historical_stock_price(ticker, start_date, end_date, interval='1mo'):
+    """Get historical stock price of ticker from Yahoo Finance.
 
     Parameters
     ----------
     ticker : string
-        Ticker symbol of shares on stock exchange
-    startdate : Timestamp
-        Datetime of starting date of share price
-    enddate : Timestamp
-        Datetime of ending date of share price
+        Ticker of stock
+    start_date : string
+        Start date of historical stock price
+    end_date : string
+        End date of historical stock price
+    interval : string
+        Interval of historical stock price
 
     Returns
     -------
     DataFrame
-        Share prices for each date between start and end
+        Historical stock price of ticker
     """
-    prices = yf.download(tickers=ticker, start=startdate, end=enddate)['Close']
-    prices = pd.DataFrame(prices)
-    prices.reset_index(inplace=True)
+    stock = yf.Ticker(ticker)
+    df_stock = stock.history(start=start_date, end=end_date, interval=interval)
 
-    return prices
+    return df_stock
 
+def get_current_datetime():
+    """Get current datetime.
+
+    Returns
+    -------
+    datetime
+        Current datetime
+    """
+    return 
 
 
