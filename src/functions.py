@@ -46,9 +46,11 @@ def read_account_overview(filename):
 
     df_account['Datum'] = pd.to_datetime(df_account['Datum'], format="%d-%m-%Y")
     df_account['Datum_Year'] = df_account['Datum'].dt.year
-    df_account.fillna({'Mutatie_Bedrag': 0}, inplace=True)
-    df_account.fillna({'Product': ''}, inplace=True)
-    # Transform the date to a year-month format for grouping per month
+    df_account.fillna({
+        'Mutatie_Bedrag': 0,
+        'Product': ''
+    }, inplace=True)
+
     df_account['datum_reduced'] = df_account['Datum'].dt.strftime('%Y-%m')
     df_account.sort_values(by=['Datum'], ascending=True, inplace=True)
 
