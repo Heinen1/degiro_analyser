@@ -21,7 +21,7 @@ def get_quantity_and_value_from_description(x):
     return [quantity, value]
 
 def read_account_overview(filename):
-    """Load Account export .xls from DeGiro, rename unnamed columns and
+    """Load Account export .csv from DeGiro, rename unnamed columns and
     replace nan-values with zeros.
 
     Parameters
@@ -34,9 +34,11 @@ def read_account_overview(filename):
     DataFrame
         Account transactions of shares
     """
-    df_account = pd.read_excel(filename,
-                               decimal=',',
-                               thousands='.')
+    df_account = pd.read_csv(
+        filename,
+        decimal=',',
+        thousands='.'
+    )
 
     columns_dict = {'Mutatie': 'Mutatie_Valuta',
                     'Unnamed: 8': 'Mutatie_Bedrag',
