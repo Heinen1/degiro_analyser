@@ -2,83 +2,109 @@ import pandas as pd
 import yfinance as yf
 from datetime import timedelta
 
-def dividends(df_account):
+def dividends(df_account, base_currency):
     """
-    Equation for paid out dividends (_div) in base currency: (Dividends - CAK) * FX where
+    Calculate dividends paid out in base currency:
+    
+    Equation: (Dividends - CAK) * FX with
     - Dividends: paid out dividends by security
     - CAK: DEGIRO Corporate Action Kosten (CAK)
     - FX: Foreign Exchange rate
 
-    The following is assumed to be true for the DEGIRO overview
+    Assumptions (DEGIRO-specific):
     1. Dividend and CAK occur on *same* Valutadatum
-    2. Currency of Dividend and CAK are the *same*
+    2. Dividend and CAK have same currency
     3. CAK is incurred *before* conversion of currency
     4. AutoFX is enabled in DEGIRO
 
     Args:
         df_account (DataFrame): Account overview loaded in datafrane
+        base_currency (string): Base currency of account statement (e.g. USD or EUR)
 
     Returns:
         Dividends paid out on Valutadatum and converted to base currency
     """
 
-    # Some general comments:
-    # - Valutadatum is fictive date on which a bank actually process a transactions for interest calculations, 
-    #   which can differ from the booking date (day of the actual transaction).
+    # General comment:
     # - The DEGIRO Corporate Action Kosten are usually one line above the Dividend entry in the account overview.
     #   However there are also occurances that the CAK are incured months after the Dividend (e.g. I have 2 CAKs
     #   on date 18-11-2023 with a valutadatum of 28-06-2023 and 28-03-2023).
-    # - Valuta Debitering Valutadatum should agree with the Booking date of DEGIRO CAK and Dividend
-    # - If a currency conversion takes place in the account, you will be see entries of Valuta Debitering and Valuta Creditering
-    #   in the account statement. [1] These are also visible when purchasing securities on a stock exchange that holds a different
-    #   currency than the base currency.
-    #
-    # [1] https://www.degiro.nl/helpdesk/tarieven/transactiekosten/zijn-er-kosten-verbonden-voor-het-handelen-een-vreemde-valuta)
+
+    # ------------------------------------------------------------------
+    # 1. Extract dividends and corporate action costs (CAK)
+    # ------------------------------------------------------------------
+    # - The CAK entry has no description in the Product column.
+    # - Merge has only been tested using a single product (!); cross-product contamination can occur.
+    cols_dividend = ['Datum', 'Valutadatum', 'Product', 'Mutatie_Valuta', 'Mutatie_Bedrag']
+    cols_cak = ['Valutadatum', 'Mutatie_Bedrag']
     
-    cols_merge = ['Datum', 'Valutadatum', 'Mutatie_Bedrag']
-    df_dividend = df_account[df_account['Omschrijving'].str.contains('Dividend', na=False)][cols_merge + ['Product']]
-    df_cak = df_account[df_account['Omschrijving'].str.contains('Corporate Action Kosten', na=False)][cols_merge]
+    df_dividend = df_account[
+        df_account['Omschrijving'].str.contains('Dividend', na=False)
+    ][cols_dividend]
+    
+    df_cak = df_account[
+        df_account['Omschrijving'].str.contains('Corporate Action Kosten', na=False)
+    ][cols_cak].rename(columns={'Mutatie_Bedrag': 'CAK'})
 
-    # Assumption 1: Dividend and CAK occur on *same* Valutadatum
-    # The CAK entry has no description in the Product column.
-    # Outer join ensures that CAK is added as additional column in the dataframe.
-    # If there are no GAKs, (e.g. using Basic account), the nan values are replaced by zero.
-
-    # IMPORTANT: this merge has only been tested using a single product. 
-    # If multiple products are available and pay out dividends at the same Valutadatum, you will get
-    # combinations that are cross-contaminated. 
-
-    # Another approach to match CAK with Dividends is to find the 'closest' entry of CAK for each
-    # Dividend entry in the account statement.
+    # Merge CAK with dividends. If CAK is missing -> assume zero)
     df_dividend = df_dividend.merge(
         df_cak,
         how='outer',
         on='Valutadatum',
-        suffixes=('_div', '_cak')
+    ).assign(CAK=lambda x: x['CAK'].fillna(0))
+    
+    df_dividend['Dividend_foreign'] = df_dividend['Mutatie_Bedrag'] + df_dividend['CAK']
+
+    # ------------------------------------------------------------------
+    # 2. Build FX table (default FX = 1 for base currency)
+    # ------------------------------------------------------------------
+    df_fx_init = pd.DataFrame({
+        'Datum': df_dividend['Datum'],
+        'Mutatie_Valuta': df_dividend['Mutatie_Valuta'],
+        'FX': 1
+    })
+    
+    # Extract all FX entries from (1) account statement, or (2) external API. 
+    # Only dividends that are *not* in base currency are extracted from account statement.
+    df_fx_source = get_fx_for_dividends(df_account, option='account')
+
+    df_fx = df_fx_init.merge(
+        df_fx_source[['Valutadatum', 'FX']],
+        left_on="Datum",
+        right_on="Valutadatum",
+        how="left",
+        suffixes=("", "_source")
     )
-    df_dividend['Mutatie_Bedrag_cak'] = df_dividend['Mutatie_Bedrag_cak'].fillna(0)
-    df_dividend['Valuta Debitering calc'] = df_dividend['Mutatie_Bedrag_div'] + df_dividend['Mutatie_Bedrag_cak']
 
-    # ToDO. Check if product is in foreign currency
+    # Replace all FX rates in non base currency with the correct FX
+    mask = df_fx["Mutatie_Valuta"] != base_currency
+    df_fx.loc[mask, "FX"] = df_fx.loc[mask, "FX_source"]
 
-    # Two options to get the FX (1) extract from Account overview (2) use external Python API (tdb)
-    df_fx = get_fx_for_dividends(df_account, option='account')
-
-    # For every dividend and CAK combination, one should also get the FX
+    # ------------------------------------------------------------------
+    # 3. Apply FX and finalize output
+    # ------------------------------------------------------------------
+    
+    # Valuta Debitering Valutadatum should agree with the Datum of DEGIRO CAK and Dividend
     df_dividend = df_dividend.merge(
-        df_fx,
+        df_fx[['Valutadatum', 'FX']],
         how='inner',
-        left_on='Datum_div',
+        left_on='Datum',
         right_on='Valutadatum',
-        suffixes=('_div', '_fx')
+        suffixes=('', '_fx')
     )
 
-    # FX is base currency --> foreign currency
-    # So foreign to base is 1 / FX
-    df_dividend['Valuta Creditering calc'] = df_dividend['Valuta Debitering calc'] * (1 / df_dividend['FX'])
-    df_dividend['Datum_Year_Month'] = df_dividend['Datum_div'].dt.strftime('%Y-%m')
+    # After merge there will be two `Valutadatum` columns (original from dividends
+    # and one from the FX table). Keep the original `Valutadatum` (dividend date)
+    # and remove the duplicate added by the FX merge.
+    if 'Valutadatum_fx' in df_dividend.columns:
+        df_dividend.drop(columns=['Valutadatum_fx'], inplace=True)
 
-    return df_dividend[['Product', 'Valutadatum_div', 'Datum_Year_Month', 'Valuta Creditering calc']]
+    # FX: base currency --> foreign currency, thus:
+    # 1 / FX: foreign currency --> base currency
+    df_dividend['Dividend_base'] = df_dividend['Dividend_foreign'] * (1 / df_dividend['FX'])
+    df_dividend['Datum_Year_Month'] = df_dividend['Datum'].dt.strftime('%Y-%m')
+
+    return df_dividend[['Product', 'Valutadatum', 'Datum_Year_Month', 'Dividend_base']]
 
 
 def get_fx_for_dividends(df_account, option='account'):
