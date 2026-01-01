@@ -124,8 +124,6 @@ def get_fx_for_dividends(df_account, option='account'):
 
     Returns:
         DataFrame containing FX exchange rate for each of Valutadaum
-
-        
     """
     if option == 'external':
         return get_fx_for_dividends_from_external(df_account)
@@ -135,10 +133,10 @@ def get_fx_for_dividends(df_account, option='account'):
 
 def get_fx_for_dividends_from_account(df_account):
     """
-    Get FX for the dividends from the account overview.
+    Get foreign exchange rates for the dividends from the account statement.
 
     Args:
-        df_account (DataFrame): Account overview loaded in dataframe
+        df_account (DataFrame): Account statements loaded in dataframe
 
     Returns:
         DataFrame containing FX for each dividend transaction 
@@ -162,13 +160,16 @@ def get_fx_for_dividends_from_external(df_account):
 
 
 def get_quantity_and_value_from_description(x):
-    """Split string format: Koop [n] @ [x,y] EUR
-    n is quantity and x is value.
+    """Get the quanity (the amount) and value from the description string.
+    
+    Split string format: Koop [n] @ [x,y] EUR
+    with n is quantity and x is value.
 
-    Parameters
-    ----------
-    x : string
-        Koop [n] @ [x,y] EUR
+    Args:
+        x (string): Description string from account overview
+
+    Returns:
+        list: [quantity, value]
     """
     colunm_index_quantity = 1
     column_index_value = 3
@@ -180,14 +181,16 @@ def get_quantity_and_value_from_description(x):
     return [quantity, value]
 
 def read_account_overview(filename):
-    """Load Account export .csv from DeGiro, rename unnamed columns and
-    replace nan-values with zeros.
+    """Load account statement export .csv from DeGiro.
+    
+    Unnamed columns and are names, nan-values are replaced with zeros, and
+    dates are typecasted to datetime objects.
 
     Args:
         filename (string): filename of Account.csv from DeGiro website
-
+    
     Returns:
-        Account transactions of securities
+        DataFrame: Account overview loaded in dataframe
     """
     df_account = pd.read_csv(
         filename,
@@ -216,24 +219,22 @@ def read_account_overview(filename):
 
     return df_account
 
-def get_historical_stock_price(ticker, start_date, end_date, interval='1mo'):
-    """Get historical stock price of ticker from Yahoo Finance.
+def get_historical_stock_price(
+    ticker, 
+    start_date,
+    end_date,
+    interval='1mo'
+):
+    """Get stock prices of security using ticker symbol between 2 dates.
 
-    Parameters
-    ----------
-    ticker : string
-        Ticker of stock
-    start_date : string
-        Start date of historical stock price
-    end_date : string
-        End date of historical stock price
-    interval : string
-        Interval of historical stock price
-
-    Returns
-    -------
-    DataFrame
-        Historical stock price of ticker
+    Args:
+        ticker (string): Ticker of stock
+        start_date (string): Start date of stock price
+        end_date (string): End date of stock price
+        interval (string): Interval of stock price
+    
+    Returns:
+        DataFrame: Stock price of ticker between start_date and end_date
     """
     stock = yf.Ticker(ticker)
     # for 1-month interval: open = at first day of month, high/low = highest/lowest of that month,
@@ -248,13 +249,11 @@ def get_start_datetime(earliest_date):
     """Get current and start datetime.
 
     Args:
-        earliest_date (datetime)
-    Returns
-    -------
-    datetime
-        Current datetime
-    """
+        earliest_date (datetime): Earliest date to get stock price from
 
+    Returns:
+        start_datetime (datetime): Start date to get stock price from
+    """
     start_day = earliest_date.day
     start_datetime = earliest_date.strftime('%Y-%m-%d')
 
